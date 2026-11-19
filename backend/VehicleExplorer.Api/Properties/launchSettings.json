@@ -1,0 +1,13 @@
+{
+  "profiles": {
+    "VehicleExplorer.Api": {
+      "commandName": "Project",
+      "launchBrowser": true,
+      "launchUrl": "swagger",
+      "environmentVariables": {
+        "ASPNETCORE_ENVIRONMENT": "Development"
+      },
+      "applicationUrl": "https://localhost:53007;http://localhost:53008"
+    }
+  }
+}
