@@ -1,73 +1,137 @@
 # ATLAS — Vehicle Explorer
 
-A distinct, editorial-style vehicle discovery application. Angular 18 + ASP.NET Core 8, backed by the public NHTSA vPIC API.
+A vehicle discovery application built with Angular 18 and ASP.NET Core 8 Web API, powered by the public NHTSA vPIC API.
+
+Users can select a manufacturer, model year, and optional vehicle type to explore matching models.
+
+## Technology stack
+
+- Frontend: Angular 18, TypeScript, RxJS; Nginx for container hosting
+- Backend: ASP.NET Core 8 Web API, controllers, typed HttpClient, IMemoryCache
+- Infrastructure: Docker Compose, GitHub; AWS EC2 deployment planned
+- Upstream data: https://vpic.nhtsa.dot.gov/api/
 
 ## Prerequisites
-- Docker Engine with Compose plugin (recommended)
-- Alternatively: .NET 8 SDK, Node.js 20 and npm
 
-## Quick start (Docker)
-1. Clone the repository.
-2. Run `docker compose up --build -d` from the repository root.
-3. Visit `http://localhost` (set `WEB_PORT=8081` if port 80 is occupied).
-4. API health: `http://localhost:8080/health` (bound to localhost only).
-5. Stop with `docker compose down`.
+- Recommended: Docker Engine/Desktop with Docker Compose
+- Local development: .NET 8 SDK, a Node.js version supported by the Angular toolchain, and npm
+
+## Quick start with Docker
+
+```bash
+git clone https://github.com/IbrahimAlrabea/atlas-vehicle-explorer.git
+cd atlas-vehicle-explorer
+docker compose up --build -d
+docker compose ps
+```
+
+- Frontend: http://localhost
+- API health: http://localhost:8080/health
+- Makes endpoint: http://localhost:8080/api/vehicles/makes
+
+The API port is bound to localhost by default. If port 80 is in use, on Git Bash run:
+
+```bash
+WEB_PORT=8081 docker compose up --build -d
+```
+
+Then visit http://localhost:8081.
+
+```bash
+docker compose logs -f
+docker compose down
+```
 
 ## Local development
-In terminal 1:
-```sh
+
+**Backend (Visual Studio 2022):** Open `backend/VehicleExplorer.sln`, select `VehicleExplorer.Api` as the startup project, or run:
+
+```bash
 cd backend/VehicleExplorer.Api
+dotnet restore
 dotnet run --urls http://localhost:8080
 ```
-In terminal 2:
-```sh
+
+**Frontend (VS Code):** In another terminal:
+
+```bash
 cd frontend
 npm install
 npm start
 ```
-Open `http://localhost:4200`. Angular's proxy forwards `/api` to `localhost:8080`.
 
-## API
-- `GET /api/vehicles/makes`
-- `GET /api/vehicles/makes/{makeId}/types`
-- `GET /api/vehicles/models?makeId=474&year=2015`
-- `GET /api/vehicles/models?makeId=474&year=2015&type=car`
+Visit http://localhost:4200. The Angular development proxy forwards `/api` to localhost:8080. Start the backend first.
 
-## Smoke test
-1. Select Honda and year 2015.
-2. Choose Passenger Car and click Explore Models.
-3. Expect Accord and Civic among results.
-4. Change year, then make, and verify old results clear.
-5. Check a make/year combination with no models, and invalid query parameters.
+## API endpoints
 
-## AWS EC2 deployment (manual)
-1. Check AWS Free Plan eligibility and pricing in your own account first. Set a budget alert; do not assume EC2 is free.
-2. Create an EC2 Linux instance sized for Docker builds; configure its security group for SSH from **your IP only**, and HTTP (80) from the internet. Use an SSH key, not passwords.
-3. Install Docker Engine and the Docker Compose plugin using the official instructions for your chosen AMI.
-4. Clone your public repository on the instance. Run `docker compose up --build -d`.
-5. Visit `http://<public-ip>`. For a real public deployment, add a domain and HTTPS reverse proxy (e.g. Caddy) before sharing broadly.
-6. Verify `/health` locally on the instance and check `docker compose logs` if needed.
-7. Avoid committing AWS credentials, `.env`, SSH private keys or access tokens.
+| Method | Route | Purpose |
+|---|---|---|
+| GET | `/api/vehicles/makes` | List manufacturers |
+| GET | `/api/vehicles/makes/{makeId}/types` | List types for a manufacturer |
+| GET | `/api/vehicles/models?makeId=474&year=2015` | Models for make and year |
+| GET | `/api/vehicles/models?makeId=474&year=2015&type=car` | Models filtered by type |
+| GET | `/health` | Health check |
 
-## Known limits
-- The upstream catalog is large; the manufacturer dropdown filters locally and shows the first 120 matching entries. Type aliases cover common categories; unsupported types are disabled.
-- No database or authentication because the assignment is read-only and public.
-- Caching is per process and does not prevent simultaneous first-time upstream requests.
-- Production should have HTTPS, tighter ingress controls, structured telemetry, and automated integration tests.
+## Architecture
+
+The backend uses **controller-based endpoints**, not Minimal APIs. Responsibilities are separated into:
+
+- `Controllers/`: HTTP routing and request handling
+- `Services/`: vehicle catalog coordination and caching
+- `Clients/`: typed NHTSA HTTP integration and upstream contracts
+- `DTOs/`: application response contracts
+- `Middleware/`: centralized exception handling
+- `Program.cs`: dependency injection and HTTP pipeline setup
+
+The Angular frontend lives in `frontend/src/app/`. Nginx serves the built frontend and proxies API traffic in the containerized configuration.
+
+## Engineering choices
+
+- Typed HttpClient isolates the upstream NHTSA dependency.
+- IMemoryCache reduces repeat requests (makes: 12h; types: 6h; models: 3h).
+- No database or authentication is needed for the read-only public catalog.
+- Explicit aliases support common vehicle type filters; unsupported mappings are not silently submitted.
+- Centralized exception handling returns controlled HTTP error responses.
+
+See `DECISIONS.md` for rationale and trade-offs.
+
+## Manual verification performed
+
+- Built and started services with `docker compose up --build`.
+- Restarted in detached mode with `docker compose up -d` and checked `docker compose ps`.
+- Verified `/health` returned HTTP 200.
+- Opened the Angular frontend in the browser.
+- Selected Honda and year 2015 and verified model discovery worked through the backend.
+- Inspected startup and request logs with `docker compose logs -f`.
+- Verified Docker itself using the official `hello-world` image.
+
+These are manual checks, not automated test coverage. Additional recommended tests include invalid inputs, empty results, upstream errors/timeouts, rapid selection changes, and accessibility.
+
+## AWS EC2 deployment (planned)
+
+1. Review your account's current AWS pricing and Free Tier/Free Plan eligibility; configure a billing alert.
+2. Provision a Linux EC2 instance with sufficient resources for the chosen build strategy.
+3. Restrict SSH to your IP; allow HTTP only as needed for the demonstration.
+4. Install Docker Engine and the Docker Compose plugin from official instructions for the selected OS.
+5. Clone the public repository and run `docker compose up --build -d`.
+6. Check the application at `http://<public-ip>` and verify `/health` locally on the instance.
+7. Add HTTPS and a suitable reverse proxy before treating the public deployment as production-ready.
+
+**Status:** AWS deployment has not yet been completed. No public AWS URL is claimed.
+
+## Security and limitations
+
+- Never commit credentials, SSH keys, access tokens, or `.env` secrets.
+- API access is limited to localhost by the current Docker Compose port binding; Nginx handles browser-facing API requests.
+- Manufacturer search limits visible results to the first 120 matches.
+- Vehicle type alias coverage is incomplete.
+- IMemoryCache is per-process; simultaneous misses may duplicate upstream calls.
+- No automated tests or CI/CD have been verified.
+- Production should include HTTPS, observability, dependency scanning, and tighter ingress controls.
 
 ## Submission
-Provide your public GitHub repository URL and the live AWS URL. Verify both from an incognito window. Commit changes incrementally rather than uploading one final commit.
 
-## Open in Visual Studio and VS Code
+- GitHub: https://github.com/IbrahimAlrabea/atlas-vehicle-explorer
+- Live AWS URL: pending deployment
 
-**Backend (Microsoft Visual Studio 2022):** Open `backend/VehicleExplorer.sln`. Install the .NET 8 SDK and ASP.NET/web development workload. Set `VehicleExplorer.Api` as startup project. Run using HTTP (default launch settings may need to be configured), or from a terminal with `dotnet run --urls http://localhost:8080` in `backend/VehicleExplorer.Api`.
-
-**Frontend (Visual Studio Code):** Open the `frontend` folder, run `npm install`, then `npm start` in the integrated terminal. Browse `http://localhost:4200`. Start the backend on port 8080 first, since the Angular development proxy expects it there.
-
-## Refactoring notes
-
-Backend responsibilities are separated into `Endpoints`, `Services`, `Clients`, `DTOs`, and `Middleware`.
-The public API routes and JSON property names are unchanged; the Angular frontend needs no changes.
-The in-memory cache is per-process and intentionally simple for this assignment.
-
-**Verification:** run `dotnet build backend/VehicleExplorer.sln`, then run the API and test `/api/vehicles/makes`, `/api/vehicles/makes/474/types`, and `/api/vehicles/models?makeId=474&year=2015&type=car`.
+Verify the public links in an incognito browser before submission. Make real incremental commits as improvements are completed.
