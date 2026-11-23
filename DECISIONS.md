@@ -49,7 +49,7 @@ A local cache is simple for a single backend instance. Multiple replicas would h
 
 Centralized exception handling is designed to map invalid inputs to HTTP 400, upstream HTTP failures to 502, upstream timeouts to 504, malformed upstream JSON to 502, and unexpected failures to 500. Sensitive internal exception details should not be returned to clients.
 
-These are intended implementation mappings; automated tests for every case have not yet been completed.
+The `ArgumentException` → HTTP 400 path was verified manually with an unsupported vehicle type. Automated tests for every error case have not yet been completed.
 
 ## Frontend state
 
@@ -92,8 +92,13 @@ The following checks were actually completed:
 8. Confirmed the API `/health` endpoint returned HTTP 200.
 9. Opened the Angular frontend and successfully explored Honda models for year 2015.
 10. Confirmed frontend-to-backend communication and pushed the initial repository commit to GitHub.
+11. Ran `dotnet build backend/VehicleExplorer.sln` successfully with zero warnings and zero errors after resolving a local executable file lock.
+12. Rebuilt the Docker images and confirmed both services were running with `docker compose ps`.
+13. Verified `GET /health` returned HTTP 200; invalid `makeId` and `year` returned HTTP 400 from controller validation.
+14. Verified `GET /api/vehicles/models?makeId=474&year=2020&type=INVALID_TYPE` returned HTTP 400 with `application/problem+json` and title `Invalid request parameters`.
+15. Committed and pushed the exception-handling fix as commit `0beae99`.
 
-**Not yet verified:** automated tests, full upstream failure and invalid-input coverage, AWS deployment, HTTPS, and CI/CD.
+**Not yet verified:** automated tests, full upstream failure coverage, AWS deployment, HTTPS, and CI/CD.
 
 ## AI assistance and human review
 
@@ -109,7 +114,23 @@ Virtualization is disabled in firmware
 
 The issue was diagnosed by checking virtualization status in Windows and enabling Intel virtualization in BIOS/UEFI. The correction was verified by successfully running `docker run --rm hello-world` and starting both application services with Docker Compose.
 
-**Scope:** this is a real correction to AI-assisted environment guidance, **not** a discovered bug in AI-generated application code. A specific AI-generated code defect and fix have not yet been documented. If the assignment requires a code-level mistake, that section must be completed after reproducing and fixing a genuine issue; do not invent one.
+**Scope:** this is a real correction to AI-assisted environment guidance, not a bug in AI-generated application code.
+
+### AI-assisted exception handling correction
+
+During AI-assisted review of the API exception handler, a regression was identified in the proposed mapping: `ArgumentException` was omitted, so unsupported vehicle types would fall through to the generic HTTP 500 branch. The corrected handler restores HTTP 400 mapping while retaining structured logging and Problem Details responses.
+
+**Verification performed:**
+
+- `dotnet build backend/VehicleExplorer.sln` succeeded with zero warnings and errors.
+- `docker compose up --build -d` rebuilt and started the containers successfully.
+- `GET /health` returned HTTP 200.
+- Invalid `makeId` and `year` returned HTTP 400 through controller validation.
+- `GET /api/vehicles/models?makeId=474&year=2020&type=INVALID_TYPE` returned HTTP 400 with `Content-Type: application/problem+json`, title `Invalid request parameters`, and instance `/api/vehicles/models`.
+
+The regression was identified by code review. The corrected behavior was verified by a real API request; the prior HTTP 500 behavior was inferred from the earlier exception mapping rather than reproduced in a separate runtime test.
+
+**Code fix commit:** `0beae99` — `fix: restore bad request mapping and improve exception logging`.
 
 ## Next steps
 
