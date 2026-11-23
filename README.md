@@ -8,7 +8,7 @@ Users can select a manufacturer, model year, and optional vehicle type to explor
 
 - Frontend: Angular 18, TypeScript, RxJS; Nginx for container hosting
 - Backend: ASP.NET Core 8 Web API, controllers, typed HttpClient, IMemoryCache
-- Infrastructure: Docker Compose, GitHub; AWS EC2 deployment planned
+- Infrastructure: Docker Compose, GitHub Actions, GitHub Container Registry (GHCR), AWS EC2 (Ubuntu 24.04)
 - Upstream data: https://vpic.nhtsa.dot.gov/api/
 
 ## Prerequisites
@@ -107,17 +107,67 @@ See `DECISIONS.md` for rationale and trade-offs.
 
 These are manual checks, not automated test coverage. Additional recommended tests include invalid inputs, empty results, upstream errors/timeouts, rapid selection changes, and accessibility.
 
-## AWS EC2 deployment (planned)
+## Live AWS deployment
 
-1. Review your account's current AWS pricing and Free Tier/Free Plan eligibility; configure a billing alert.
-2. Provision a Linux EC2 instance with sufficient resources for the chosen build strategy.
-3. Restrict SSH to your IP; allow HTTP only as needed for the demonstration.
-4. Install Docker Engine and the Docker Compose plugin from official instructions for the selected OS.
-5. Clone the public repository and run `docker compose up --build -d`.
-6. Check the application at `http://<public-ip>` and verify `/health` locally on the instance.
-7. Add HTTPS and a suitable reverse proxy before treating the public deployment as production-ready.
+**Live demo:** http://13.60.207.199/
 
-**Status:** AWS deployment has not yet been completed. No public AWS URL is claimed.
+The application is deployed on an AWS EC2 Ubuntu 24.04 instance using Docker Compose. The deployment uses prebuilt Linux/amd64 images from GitHub Container Registry (GHCR), avoiding memory-intensive Angular and .NET builds on the small EC2 instance.
+
+- API image: `ghcr.io/ibrahimalrabea/atlas-vehicle-explorer-api:latest`
+- Web image: `ghcr.io/ibrahimalrabea/atlas-vehicle-explorer-web:latest`
+- Public entry point: Nginx on HTTP port 80
+- API host binding: `127.0.0.1:8080` (not directly exposed publicly)
+- Nginx proxies `/api/` and `/health` to the API container over the Compose network.
+
+### Deploy on an Ubuntu EC2 instance
+
+Install Docker Engine and the Docker Compose plugin using the [official Docker Ubuntu instructions](https://docs.docker.com/engine/install/ubuntu/). Allow inbound HTTP on port 80 and restrict administrative access. Clone the repository:
+
+```bash
+git clone https://github.com/IbrahimAlrabea/atlas-vehicle-explorer.git
+cd atlas-vehicle-explorer
+```
+
+Create `docker-compose.prod.yml` in the project root:
+
+```yaml
+services:
+  api:
+    image: ghcr.io/ibrahimalrabea/atlas-vehicle-explorer-api:latest
+    restart: unless-stopped
+    environment:
+      ASPNETCORE_URLS: http://+:8080
+      ASPNETCORE_ENVIRONMENT: Production
+    ports:
+      - "127.0.0.1:8080:8080"
+
+  web:
+    image: ghcr.io/ibrahimalrabea/atlas-vehicle-explorer-web:latest
+    restart: unless-stopped
+    depends_on:
+      - api
+    ports:
+      - "80:80"
+```
+
+Then pull and start the prebuilt images:
+
+```bash
+sudo docker compose -f docker-compose.prod.yml config
+sudo docker compose -f docker-compose.prod.yml pull
+sudo docker compose -f docker-compose.prod.yml up -d
+sudo docker compose -f docker-compose.prod.yml ps
+curl -i http://127.0.0.1:8080/health
+curl -i http://127.0.0.1/api/vehicles/makes
+```
+
+`docker-compose.prod.yml` was created on the EC2 host for the verified deployment; it is documented here for reproducibility and is not claimed to be committed to the repository.
+
+### Container image publishing
+
+The repository includes `.github/workflows/main.yml`. On pushes to `main` (or manual dispatch), GitHub Actions builds separate `api` and `web` images for `linux/amd64` and publishes `latest` and commit-derived tags to GHCR. Both published packages are public. **This automates image builds and publishing, not deployment to EC2**: updating the live server still requires pulling the new images and recreating the containers.
+
+The live URL currently uses an automatically assigned EC2 public IPv4 address, which can change after an instance stop/start. HTTPS and a stable domain are not configured.
 
 ## Security and limitations
 
@@ -126,12 +176,12 @@ These are manual checks, not automated test coverage. Additional recommended tes
 - Manufacturer search limits visible results to the first 120 matches.
 - Vehicle type alias coverage is incomplete.
 - IMemoryCache is per-process; simultaneous misses may duplicate upstream calls.
-- No automated tests or CI/CD have been verified.
-- Production should include HTTPS, observability, dependency scanning, and tighter ingress controls.
+- Automated tests have not been verified. GitHub Actions image build/publish CI is working; EC2 deployment is manual.
+- This demo is served over HTTP, not HTTPS; do not submit sensitive information. Production should include TLS, observability, dependency scanning, and tighter ingress controls.
 
 ## Submission
 
 - GitHub: https://github.com/IbrahimAlrabea/atlas-vehicle-explorer
-- Live AWS URL: pending deployment
+- Live AWS URL: http://13.60.207.199/
 
-Verify the public links in an incognito browser before submission. Make real incremental commits as improvements are completed.
+Verify both public links in an incognito browser before submission. The live demo was opened successfully and the API health endpoint returned HTTP 200 on EC2. Make real incremental commits as improvements are completed.

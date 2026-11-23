@@ -49,7 +49,7 @@ A local cache is simple for a single backend instance. Multiple replicas would h
 
 Centralized exception handling is designed to map invalid inputs to HTTP 400, upstream HTTP failures to 502, upstream timeouts to 504, malformed upstream JSON to 502, and unexpected failures to 500. Sensitive internal exception details should not be returned to clients.
 
-The `ArgumentException` → HTTP 400 path was verified manually with an unsupported vehicle type. Automated tests for every error case have not yet been completed.
+These are intended implementation mappings; automated tests for every case have not yet been completed.
 
 ## Frontend state
 
@@ -61,9 +61,13 @@ Angular uses RxJS `switchMap` for model-search request flows. Changing manufactu
 
 The Docker Compose configuration runs two services: ASP.NET Core API and Angular served through Nginx. The API port is bound to localhost in the current configuration; Nginx provides browser-facing routing.
 
-AWS EC2 is the planned demo target, but pricing and Free Tier eligibility must be checked for the actual account. Building images on a small instance can be resource-intensive. Public HTTP is only a demo baseline; HTTPS is needed for production-quality deployment.
+The demo is hosted on AWS EC2 (`t3.micro`, Ubuntu 24.04) using Docker Compose. The instance has approximately 1 GiB RAM and a 2 GiB swap file. Building Angular and .NET images on such a small instance would be resource-intensive, so GitHub Actions builds `linux/amd64` images and publishes them to public GitHub Container Registry packages. EC2 pulls the finished images and runs them with a separate `docker-compose.prod.yml` created on the host.
 
-**AWS deployment status:** not yet completed.
+The frontend is publicly reachable on port 80. The API is bound to host loopback (`127.0.0.1:8080`), and Nginx forwards `/api/` and `/health` requests to the API container via Docker's internal network.
+
+**AWS deployment status:** completed and manually verified at http://13.60.207.199/. This is a demonstration deployment over HTTP; it has no TLS certificate or stable domain, and the public IPv4 address may change after a stop/start. AWS pricing and Free Tier/Free Plan eligibility must be monitored for the account.
+
+GitHub Actions automates **building and publishing** images, not the final EC2 rollout. The production Compose file is currently maintained on the host and documented in `README.md`, rather than committed to Git.
 
 ## Trade-offs and known gaps
 
@@ -76,7 +80,8 @@ AWS EC2 is the planned demo target, but pricing and Free Tier eligibility must b
 | Type aliases | Predictable filters | Incomplete taxonomy coverage |
 | Component-local state | Easy to follow | May not scale to larger feature sets |
 | Docker Compose | Reproducible setup | Not an orchestration platform |
-| Manual EC2 deployment | Straightforward demo | No CI/CD or automatic rollout |
+| GitHub Actions + GHCR | Reproducible off-instance image builds | Deployment to EC2 remains manual |
+| Manual EC2 rollout | Simple for a small demo | No automatic rollout or rollback |
 
 ## Verification performed
 
@@ -91,14 +96,14 @@ The following checks were actually completed:
 7. Inspected service logs using `docker compose logs -f`.
 8. Confirmed the API `/health` endpoint returned HTTP 200.
 9. Opened the Angular frontend and successfully explored Honda models for year 2015.
-10. Confirmed frontend-to-backend communication and pushed the initial repository commit to GitHub.
-11. Ran `dotnet build backend/VehicleExplorer.sln` successfully with zero warnings and zero errors after resolving a local executable file lock.
-12. Rebuilt the Docker images and confirmed both services were running with `docker compose ps`.
-13. Verified `GET /health` returned HTTP 200; invalid `makeId` and `year` returned HTTP 400 from controller validation.
-14. Verified `GET /api/vehicles/models?makeId=474&year=2020&type=INVALID_TYPE` returned HTTP 400 with `application/problem+json` and title `Invalid request parameters`.
-15. Committed and pushed the exception-handling fix as commit `0beae99`.
+10. Confirmed frontend-to-backend communication and pushed the repository to GitHub.
+11. Added a GitHub Actions workflow; the build-and-publish run completed successfully, and both API and web images appeared as public GHCR packages.
+12. Provisioned an Ubuntu 24.04 AWS EC2 instance, configured a 2 GiB swap file, and installed Docker Engine and Docker Compose.
+13. Pulled the prebuilt images from GHCR and confirmed both containers were `Up`.
+14. Verified `curl -i http://127.0.0.1:8080/health` returned HTTP 200 on EC2.
+15. Opened the public AWS site successfully and confirmed the application worked.
 
-**Not yet verified:** automated tests, full upstream failure coverage, AWS deployment, HTTPS, and CI/CD.
+**Not yet verified/completed:** automated test suite, exhaustive upstream failure and invalid-input coverage, HTTPS, and automatic EC2 deployment. GitHub Actions image publishing and manual AWS deployment have been verified.
 
 ## AI assistance and human review
 
@@ -114,23 +119,7 @@ Virtualization is disabled in firmware
 
 The issue was diagnosed by checking virtualization status in Windows and enabling Intel virtualization in BIOS/UEFI. The correction was verified by successfully running `docker run --rm hello-world` and starting both application services with Docker Compose.
 
-**Scope:** this is a real correction to AI-assisted environment guidance, not a bug in AI-generated application code.
-
-### AI-assisted exception handling correction
-
-During AI-assisted review of the API exception handler, a regression was identified in the proposed mapping: `ArgumentException` was omitted, so unsupported vehicle types would fall through to the generic HTTP 500 branch. The corrected handler restores HTTP 400 mapping while retaining structured logging and Problem Details responses.
-
-**Verification performed:**
-
-- `dotnet build backend/VehicleExplorer.sln` succeeded with zero warnings and errors.
-- `docker compose up --build -d` rebuilt and started the containers successfully.
-- `GET /health` returned HTTP 200.
-- Invalid `makeId` and `year` returned HTTP 400 through controller validation.
-- `GET /api/vehicles/models?makeId=474&year=2020&type=INVALID_TYPE` returned HTTP 400 with `Content-Type: application/problem+json`, title `Invalid request parameters`, and instance `/api/vehicles/models`.
-
-The regression was identified by code review. The corrected behavior was verified by a real API request; the prior HTTP 500 behavior was inferred from the earlier exception mapping rather than reproduced in a separate runtime test.
-
-**Code fix commit:** `0beae99` — `fix: restore bad request mapping and improve exception logging`.
+**Scope:** this is a real correction to AI-assisted environment guidance, **not** a discovered bug in AI-generated application code. A code-level AI-generated defect is not claimed here. The documented mistake was an incomplete environment setup recommendation, corrected and verified during development.
 
 ## Next steps
 
@@ -139,11 +128,13 @@ The regression was identified by code review. The corrected behavior was verifie
 3. Add request coalescing, bounded retries with jitter, and structured telemetry.
 4. Improve manufacturer selection with virtualized autocomplete and keyboard accessibility.
 5. Configure HTTPS, automated deployment, dependency scanning, and image pinning.
-6. Deploy to AWS, validate the public endpoint, and update the submission URL.
+6. Add a stable domain, HTTPS/TLS, and AWS cost alerts.
+7. Commit the production Compose configuration, add automated EC2 rollout/rollback, and pin images to immutable digests or release tags.
 
 ## Submission status
 
 - Repository: https://github.com/IbrahimAlrabea/atlas-vehicle-explorer
 - Local Docker application: manually verified
-- AWS public URL: pending
+- AWS public URL: http://13.60.207.199/
+- GitHub Actions: image build/publish verified; EC2 rollout remains manual
 - Automated tests: not yet verified
